@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LearnPath AI | A study plan built around you</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#home">LearnPath<span>AI</span></a>
+    <nav aria-label="Main">
+      <a href="#home" data-link="home">Home</a>
+      <a href="#profile" data-link="profile">My profile</a>
+      <a href="#roadmap" data-link="roadmap">My roadmap</a>
+    </nav>
+  </header>
+  <div id="banner" class="banner" role="alert" hidden></div>
+
+  <main>
+    <!-- HOME -->
+    <section id="view-home" class="view">
+      <div class="hero">
+        <div class="hero-text">
+          <h1>Tell us what you want to learn. Get a plan you can finish.</h1>
+          <p class="lead">Pick any subject, from Python to pottery. LearnPath AI builds a week-by-week roadmap with daily tasks and resources that fit your level and your schedule.</p>
+          <div class="actions">
+            <a class="btn btn-primary" href="#profile">Create My Path</a>
+            <a class="btn btn-ghost" id="resume-btn" href="#roadmap" hidden>Open my roadmap</a>
+          </div>
+        </div>
+        <svg class="hero-art" viewBox="0 0 420 460" role="img" aria-label="A winding path with four weekly milestones">
+          <path class="trail-base" d="M60 420 C 60 340, 340 360, 340 280 S 80 240, 90 160 S 330 120, 330 40"/>
+          <path class="trail" pathLength="1" d="M60 420 C 60 340, 340 360, 340 280 S 80 240, 90 160 S 330 120, 330 40"/>
+          <g class="node done"><circle cx="60" cy="420" r="16"/><path d="M52 420l6 6 10-12"/><text x="86" y="426">Week 1: Foundations</text></g>
+          <g class="node done"><circle cx="340" cy="280" r="16"/><path d="M332 280l6 6 10-12"/><text x="316" y="318" text-anchor="end">Week 4: First project</text></g>
+          <g class="node"><circle cx="90" cy="160" r="16"/><text x="116" y="166">Week 8: Real-world skills</text></g>
+          <g class="node"><circle cx="330" cy="40" r="16"/><text x="304" y="46" text-anchor="end">Week 12: Your goal</text></g>
+        </svg>
+      </div>
+      <ol class="steps">
+        <li><h2>Tell us about you</h2><p>Your domain, skill level, goal, daily study time and how long you want to take.</p></li>
+        <li><h2>Get your roadmap</h2><p>Gemini writes weekly themes, daily tasks and resources matched to your profile.</p></li>
+        <li><h2>Check things off</h2><p>Tick tasks as you finish them. Your progress is saved, so you can pick up any day.</p></li>
+      </ol>
+    </section>
+
+    <!-- PROFILE -->
+    <section id="view-profile" class="view" hidden>
+      <div class="panel">
+        <h1>Your learning profile</h1>
+        <p class="muted">Saved on this device's account, so you can come back and update it anytime.</p>
+        <form id="profile-form" novalidate>
+          <div class="field">
+            <label for="name">Your name</label>
+            <input id="name" name="name" maxlength="60" required autocomplete="given-name">
+          </div>
+          <div class="field">
+            <label for="domain">What do you want to learn?</label>
+            <input id="domain" name="domain" maxlength="100" required list="domain-ideas" placeholder="Any subject: Python, nursing, guitar, bakery marketing…">
+            <datalist id="domain-ideas">
+              <option value="Web development"><option value="Data science"><option value="Machine learning"><option value="Graphic design">
+              <option value="Spoken Spanish"><option value="Personal finance"><option value="Digital marketing"><option value="Music theory">
+              <option value="Public speaking"><option value="Photography"><option value="UPSC preparation"><option value="Cooking">
+            </datalist>
+          </div>
+          <fieldset class="field">
+            <legend>Current skill level</legend>
+            <div class="choices">
+              <label><input type="radio" name="level" value="Beginner" required><span>Beginner<small>Starting from zero</small></span></label>
+              <label><input type="radio" name="level" value="Basic"><span>Basic<small>Know the terms</small></span></label>
+              <label><input type="radio" name="level" value="Intermediate"><span>Intermediate<small>Can build or do things</small></span></label>
+              <label><input type="radio" name="level" value="Advanced"><span>Advanced<small>Want to go deeper</small></span></label>
+            </div>
+          </fieldset>
+          <div class="field">
+            <label for="background">Anything you already know? <span class="muted">(optional)</span></label>
+            <textarea id="background" name="background" rows="2" maxlength="300" placeholder="Courses taken, tools used, related work…"></textarea>
+          </div>
+          <div class="field">
+            <label for="goal">Your learning goal</label>
+            <textarea id="goal" name="goal" rows="3" maxlength="500" required placeholder="Example: Build and launch a portfolio site to apply for junior developer jobs."></textarea>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label for="hours">Daily study time: <output id="hours-out">2 hours</output></label>
+              <input id="hours" name="hours" type="range" min="0.5" max="8" step="0.5" value="2">
+            </div>
+            <div class="field">
+              <label for="weeks">Preferred duration</label>
+              <select id="weeks" name="weeks">
+                <option value="2">2 weeks</option><option value="4">4 weeks</option><option value="6">6 weeks</option>
+                <option value="8" selected>8 weeks</option><option value="12">12 weeks</option><option value="16">16 weeks</option>
+                <option value="20">20 weeks</option><option value="24">24 weeks</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="style">How do you learn best?</label>
+              <select id="style" name="style">
+                <option>Mixed</option><option>Videos</option><option>Reading</option><option>Hands-on projects</option>
+              </select>
+            </div>
+          </div>
+          <div class="row row-2">
+            <div class="field">
+              <label for="startDate">Start date</label>
+              <input id="startDate" name="startDate" type="date" required>
+            </div>
+            <fieldset class="field">
+              <legend>Study days <span class="muted" id="days-out"></span></legend>
+              <div class="days">
+                <label><input type="checkbox" name="studyDays" value="1" checked><span>Mon</span></label>
+                <label><input type="checkbox" name="studyDays" value="2" checked><span>Tue</span></label>
+                <label><input type="checkbox" name="studyDays" value="3" checked><span>Wed</span></label>
+                <label><input type="checkbox" name="studyDays" value="4" checked><span>Thu</span></label>
+                <label><input type="checkbox" name="studyDays" value="5" checked><span>Fri</span></label>
+                <label><input type="checkbox" name="studyDays" value="6"><span>Sat</span></label>
+                <label><input type="checkbox" name="studyDays" value="0"><span>Sun</span></label>
+              </div>
+            </fieldset>
+          </div>
+          <p id="form-error" class="error" role="alert" hidden></p>
+          <div class="actions">
+            <button class="btn btn-primary" type="submit" name="action" value="save">Save My Profile</button>
+            <button class="btn btn-ghost" id="profile-generate" type="button">Generate My Path</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- ROADMAP -->
+    <section id="view-roadmap" class="view" hidden>
+      <div id="rm-empty" class="panel center" hidden>
+        <h1 id="rm-empty-title">No roadmap yet</h1>
+        <p class="muted" id="rm-empty-text"></p>
+        <div class="actions center-actions">
+          <button class="btn btn-primary" id="rm-empty-btn" type="button"></button>
+        </div>
+      </div>
+      <div id="rm-loading" class="panel center" hidden>
+        <div class="spinner" aria-hidden="true"></div>
+        <h1>Building your roadmap</h1>
+        <p class="muted">Gemini is planning your weeks. Longer plans can take up to a minute.</p>
+      </div>
+      <div id="rm-content" hidden>
+        <div class="rm-head">
+          <div>
+            <h1 id="rm-title"></h1>
+            <p class="lead" id="rm-summary"></p>
+            <ul class="chips" id="rm-chips"></ul>
+          </div>
+          <div class="actions">
+            <button class="btn btn-ghost small" id="rm-edit" type="button">Edit profile</button>
+            <button class="btn btn-ghost small" id="rm-regen" type="button">Regenerate</button>
+            <button class="btn btn-ghost small" id="rm-print" type="button">Print</button>
+          </div>
+        </div>
+        <div class="dash">
+          <div class="progress-card">
+            <strong id="rm-pct">0%</strong><span id="rm-count" class="muted"></span>
+            <div class="bar"><div id="rm-bar"></div></div>
+            <div class="pace" id="rm-pace"></div>
+          </div>
+          <div class="stat"><b id="st-days">0/0</b><span>study days done</span></div>
+          <div class="stat"><b id="st-hours">0h</b><span id="st-hours-sub"></span></div>
+          <div class="stat"><b id="st-streak">0</b><span>day streak</span></div>
+          <div class="stat"><b id="st-finish">-</b><span id="st-finish-sub"></span></div>
+        </div>
+        <section class="question-panel" aria-labelledby="question-title">
+          <h2 id="question-title">Ask a learning question</h2>
+          <p class="muted">Get an answer grounded in current web sources.</p>
+          <form id="question-form">
+            <div class="field">
+              <label for="question-input">Your question</label>
+              <textarea id="question-input" name="question" rows="2" maxlength="1000" required placeholder="Ask about a concept, tool, or current development…"></textarea>
+            </div>
+            <div class="actions">
+              <button class="btn btn-primary" id="question-submit" type="submit">Ask Gemini</button>
+              <span id="question-status" role="status" aria-live="polite"></span>
+            </div>
+          </form>
+          <div id="question-answer" hidden>
+            <p id="question-answer-text"></p>
+            <ul id="question-sources" class="question-sources"></ul>
+          </div>
+        </section>
+        <div class="today-card" id="today"></div>
+        <div class="timeline" id="timeline" aria-label="Progress by week"></div>
+        <div class="tabs">
+          <button type="button" data-tab="plan" class="active">Weekly plan</button>
+          <button type="button" data-tab="schedule">Schedule</button>
+        </div>
+        <div id="tab-plan"><div id="rm-weeks"></div></div>
+        <div id="tab-schedule" hidden></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">LearnPath AI. Roadmaps are AI-generated, so check resources before you rely on them.</footer>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="script.js"></script>
+</body>
+</html>

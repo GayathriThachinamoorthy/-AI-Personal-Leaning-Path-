@@ -1,0 +1,19 @@
+
+{
+  "name": "learnpath-ai",
+  "version": "1.0.0",
+  "description": "AI-powered personalized learning roadmap website",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check public/script.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  }
+}
