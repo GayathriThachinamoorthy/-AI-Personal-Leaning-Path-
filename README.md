@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # LearnPath AI
 
 Personalized AI learning roadmaps. Pick any subject, tell the app your level, goal, daily study time and duration, and Gemini builds a week-by-week plan with daily tasks, resources and progress checkboxes. Your profile, roadmap and progress are saved so you can come back anytime.
@@ -94,3 +95,6 @@ On first visit the browser creates a random ID (kept in `localStorage`). Everyth
 - **Error 404 for the model**: set `GEMINI_MODEL` in `.env` to a model your key can use, such as `gemini-2.5-flash`.
 - **Quota or network errors**: wait and retry; generation does not show placeholder plans when Gemini fails.
 - **Port in use**: change `PORT` in `.env`.
+=======
+# -AI-Personal-Leaning-Path-
+>>>>>>> 4b963f1ae6c6a8abc5346ad9aebfbdf92c5d3bde
