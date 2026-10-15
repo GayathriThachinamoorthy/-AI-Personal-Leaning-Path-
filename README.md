@@ -1,100 +1,92 @@
-<<<<<<< HEAD
 # LearnPath AI
 
-Personalized AI learning roadmaps. Pick any subject, tell the app your level, goal, daily study time and duration, and Gemini builds a week-by-week plan with daily tasks, resources and progress checkboxes. Your profile, roadmap and progress are saved so you can come back anytime.
+Personalized AI learning roadmaps. This repository is being reorganized toward the frontend/backend layout below. The current complete app remains available in the root Express server and `public/`; the new React and Flask folders are the migration foundation, so the legacy routes and screens are still the production implementation.
 
-**Stack:** HTML, CSS, vanilla JavaScript, Node.js (Express), Gemini API.
-The Gemini key lives only in `.env` on the server. The browser never sees it.
+## Structure
 
-## Project structure
-
+```text
+frontend/                 React + TypeScript + Vite + Tailwind foundation
+  src/components/         Reusable UI components
+  src/pages/              Route-level pages
+  src/layouts/            App shell and layouts
+  src/services/           API services
+  src/stores/             Zustand state
+  src/hooks/              React hooks
+  src/types/              TypeScript interfaces
+  src/lib/                Utilities and API client
+  public/                 Static assets
+backend/                  Flask API foundation
+  app/routes/             Blueprint route handlers
+  app/services/           Business logic
+  app/ai/                  Gemini integration
+  app/research/            Research helpers
+  app/schemas/             Request and response schemas
+  app/utils/               Shared utilities
+  migrations/              Backend migrations
+  tests/                   Backend test suite
+supabase/                  Database config and RLS migrations
+  migrations/
+  seed.sql                 Optional seed data (add when needed)
+public/                    Existing LearnPath app (kept working during migration)
+server.js                 Existing Express API (kept working during migration)
 ```
-learnpath-ai/
-├── server.js          Express server, storage and Gemini calls
-├── package.json
-├── .env.example       Copy to .env and add your key
-├── .gitignore
-├── README.md
-├── data/              Created automatically (saved users.json)
-└── public/            Only this folder is served to the browser
-    ├── index.html
-    ├── style.css
-    └── script.js
-```
 
-## Install and run in Windows PowerShell
+## Run the existing app
 
-1. **Install Node.js 18 or newer** from https://nodejs.org (check with `node -v`).
-2. **Get a Gemini API key** (free tier available) at https://aistudio.google.com/apikey.
-3. **Open the folder in VS Code:** File > Open Folder > `learnpath-ai`.
-4. **Open the terminal:** Terminal > New Terminal (or press Ctrl+`).
-5. **Install dependencies** (use `npm.cmd` if PowerShell blocks `npm.ps1`):
-   ```bash
-   npm.cmd install
-   ```
-6. **Create your `.env` file:**
-   ```powershell
-   Copy-Item .env.example .env
-   notepad .env
-   ```
-   Replace `your_gemini_api_key_here` with your key from https://aistudio.google.com/apikey, save the file, and close Notepad. Keep the key in `.env`; never put it in `public/script.js` or `public/index.html`. `GEMINI_MODEL` defaults to `gemini-2.5-flash`; after one retry, transient 503 overloads automatically fall back to `gemini-3.5-flash-lite`. Both model settings can be changed if needed.
-7. **Start the server:**
-   ```powershell
-   npm.cmd start
-   ```
-8. **Open the app:**
-   ```powershell
-   Start-Process http://localhost:3000
-   ```
+The existing app still uses Node.js 18+, Express, and Gemini. Set `GEMINI_API_KEY` in the root `.env`, then run:
 
-Check the server and Gemini model/key access from another PowerShell terminal:
 ```powershell
-Invoke-RestMethod http://localhost:3000/api/health | ConvertTo-Json
+npm.cmd install
+npm.cmd start
 ```
-The response includes `ok`, `model`, `aiConfigured`, `aiAvailable`, and `aiStatus`. `aiAvailable: true` means the server verified that the key can access a model supporting `generateContent`.
 
-Run the JavaScript syntax checks with `npm.cmd run check`.
+Open http://localhost:3000. Do not commit `.env` or API keys.
 
-## How to use
+## Deploy frontend to Vercel and API to Render
 
-1. Click **Create My Path** on the homepage.
-2. Fill in your profile: any domain you like, skill level, goal, daily study hours and duration.
-3. Click **Save My Profile**. This stores your profile without generating a roadmap.
-4. Click **Generate My Path**. Gemini creates the roadmap from the saved profile. Replacing an existing roadmap requires confirmation because progress will reset.
-5. Open each week to see daily tasks, checkpoints, and resources. Tick tasks as you finish them.
-6. Ask a question from your roadmap for a current answer with Google Search-grounded sources.
-7. Come back later on the same browser and your profile, roadmap and progress are restored.
+This app's API runs in `server.js` on Render. Vercel serves the static files in `public/` and proxies `/api/*` requests to Render, so the Gemini key stays on the backend.
 
-## API endpoints
+### Render API service
 
-| Method | Route | Purpose |
-|---|---|---|
-| GET | `/api/state/:id` | Load profile, roadmap and progress |
-| PUT | `/api/profile/:id` | Validate and save the profile |
-| POST | `/api/roadmap/:id` | Generate a roadmap from the saved profile (resets progress) |
-| POST | `/api/ask/:id` | Answer a learner question using Gemini Google Search grounding |
-| PUT | `/api/progress/:id` | Save checked tasks |
-| GET | `/api/health` | Check the server and whether a key is set |
+- Root directory: repository root
+- Build command: `npm install`
+- Start command: `npm start`
+- Health check path: `/api/health`
+- Environment variables: set `GEMINI_API_KEY` to the Gemini API key in the Render service's **Environment** settings. For direct browser-to-Render access, also set `ALLOWED_ORIGINS` to `https://ai-personal-leaning-path.vercel.app` (include any custom domain; no path or trailing slash). The included Vercel proxy does not require browser CORS configuration.
+- Save and deploy/redeploy after adding the variables. The local `.env` file is ignored by Git and is not uploaded to Render.
 
-## How saving works
+### Vercel static frontend
 
-On first visit the browser creates a random ID (kept in `localStorage`). Everything is stored on the server in `data/users.json` under that ID. Clearing browser data or switching browsers starts a fresh account. There are no logins, so this is meant for personal or local use.
+- Project root: repository root
+- Keep the checked-in `vercel.json`; it builds the frontend from `public/`.
+- The Vercel rewrite in `vercel.json` forwards `/api/*` to `https://ai-personal-leaning-path.onrender.com/api/*`. No Gemini key or API URL environment variable is needed on Vercel. If the Render URL changes, update the rewrite destination and redeploy.
 
-## Security notes
+After deploying the updated code, open both `https://ai-personal-leaning-path.onrender.com/api/health` and `https://ai-personal-leaning-path.vercel.app/api/health`. Both should report `aiConfigured: true` and `aiAvailable: true`. If Render reports `aiConfigured: false`, add `GEMINI_API_KEY` to the **Render web service** environment and redeploy; adding it to Vercel or only to your local `.env` will not configure the Render process. The Vercel API route should match Render through the rewrite.
 
-- `.env` and `data/` are in `.gitignore`. Never commit your key.
-- The server only serves `public/`, so `server.js` and `.env` cannot be downloaded.
-- All AI text is inserted with `textContent`, never as HTML, and resource links are search queries rather than AI-invented URLs.
-- Before deploying publicly, add user accounts and rate limiting to `/api/roadmap`, since each call uses your Gemini quota.
+Render environment variables are configured in the service dashboard and become active on deploy; Vercel environment variable changes apply to new deployments. See [Render's environment variables guide](https://render.com/docs/configure-environment-variables) and [Vercel's environment variables guide](https://vercel.com/docs/environment-variables).
 
-## Troubleshooting
+## Start the new frontend foundation
 
-- **"Can't reach the server"**: the backend is not running, or you opened the HTML file directly. In the VS Code terminal run `npm install`, then `npm start`, and open **http://localhost:3000**. The page also detects a server on port 3000 if you use Live Server, and shows a banner when none is found.
-- **Gemini is unavailable**: inspect `/api/health`; verify the `.env` key, model access, and quota, then restart the server after changing `.env`.
-- **"Gemini returned an error (400/403)"**: the key is wrong or restricted. Create a new one in AI Studio.
-- **Error 404 for the model**: set `GEMINI_MODEL` in `.env` to a model your key can use, such as `gemini-2.5-flash`.
-- **Quota or network errors**: wait and retry; generation does not show placeholder plans when Gemini fails.
-- **Port in use**: change `PORT` in `.env`.
-=======
-# -AI-Personal-Leaning-Path-
->>>>>>> 4b963f1ae6c6a8abc5346ad9aebfbdf92c5d3bde
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend API client reads `VITE_API_URL` (defaults to `http://localhost:5000`). The initial screen links to the existing app while routes and features are migrated.
+
+## Prepare the Flask backend
+
+```powershell
+cd backend
+py -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env
+```
+
+The Flask API and persistence migration are not yet wired to the existing endpoints. Keep using the root Express server until those routes are ported.
+
+## Supabase
+
+Apply `supabase/migrations/202610150001_initial_schema.sql` to a Supabase project to create profile/roadmap tables and user-scoped RLS policies. Set the Supabase URL and keys in the backend environment. The service role key must remain server-side; never add it to `frontend` variables.

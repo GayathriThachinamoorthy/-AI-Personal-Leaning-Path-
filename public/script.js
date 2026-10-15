@@ -6,6 +6,7 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_MS = 86400000;
 let BASE = '';
 let generating = false;
+const CONFIGURED_API_BASE = String(window.LEARNPATH_API_URL || '').trim().replace(/\/+$/, '');
 
 const uid = (() => {
   let id = localStorage.getItem('lp_uid');
@@ -36,7 +37,9 @@ async function api(path, opts = {}) {
   try {
     res = await fetch(BASE + '/api' + path, { headers: { 'Content-Type': 'application/json' }, ...opts });
   } catch {
-    throw new Error("Can't reach the server. Run npm start in the terminal, then open http://localhost:3000");
+    throw new Error(BASE
+      ? `Can't reach the API at ${BASE}. Check that the Render service is running.`
+      : "Can't reach the server. Run npm start in the terminal, then open http://localhost:3000");
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status}). Open the app at http://localhost:3000`);
@@ -50,6 +53,11 @@ async function ping(base) {
   } catch { return null; }
 }
 async function connect() {
+  if (CONFIGURED_API_BASE) {
+    BASE = CONFIGURED_API_BASE;
+    const remoteHealth = await ping(CONFIGURED_API_BASE);
+    return remoteHealth;
+  }
   let j = await ping('');
   if (j) { BASE = ''; return j; }
   j = await ping('http://localhost:3000'); // Live Server or file:// fallback
@@ -119,23 +127,37 @@ form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const err = $('#form-error');
   err.hidden = true;
-  const fd = new FormData(form);
-  const d = Object.fromEntries(fd);
-  d.studyDays = fd.getAll('studyDays').map(Number);
-  if (!d.studyDays.length) { err.textContent = 'Choose at least one study day.'; err.hidden = false; return; }
-  const buttons = form.querySelectorAll('button');
-  buttons.forEach((b) => (b.disabled = true));
   try {
-    const { profile } = await api(`/profile/${uid}`, { method: 'PUT', body: JSON.stringify(d) });
-    state.profile = profile;
+    state.profile = await saveProfileFromForm();
     toast('Profile saved');
   } catch (ex) {
     err.textContent = ex.message;
     err.hidden = false;
-  } finally {
-    buttons.forEach((b) => (b.disabled = false));
   }
 });
+
+async function saveProfileFromForm() {
+  const err = $('#form-error');
+  err.hidden = true;
+  if (!form.reportValidity()) throw new Error('Complete the required profile fields first.');
+  const fd = new FormData(form);
+  const profileInput = Object.fromEntries(fd);
+  profileInput.studyDays = fd.getAll('studyDays').map(Number);
+  if (!profileInput.studyDays.length) {
+    err.textContent = 'Choose at least one study day.';
+    err.hidden = false;
+    throw new Error('Choose at least one study day.');
+  }
+  const buttons = form.querySelectorAll('button');
+  buttons.forEach((button) => { button.disabled = true; });
+  try {
+    const { profile } = await api(`/profile/${uid}`, { method: 'PUT', body: JSON.stringify(profileInput) });
+    state.profile = profile;
+    return profile;
+  } finally {
+    buttons.forEach((button) => { button.disabled = false; });
+  }
+}
 
 /* ---------- roadmap view states ---------- */
 function showRm(which) {
@@ -161,11 +183,18 @@ function renderRoadmapView() {
 
 async function generate() {
   if (generating) return;
-  if (!state.profile) {
-    toast('Save your profile before generating a roadmap.', true);
+  if (state.roadmap && !confirm('Generate a new roadmap using your current profile? This replaces the current one and resets your progress.')) return;
+  try {
+    await saveProfileFromForm();
+  } catch (error) {
+    if (error.message !== 'Complete the required profile fields first.' && error.message !== 'Choose at least one study day.') {
+      toast(error.message, true);
+      return;
+    }
+    go('profile');
+    toast(error.message, true);
     return;
   }
-  if (state.roadmap && !confirm('Generate a new roadmap from your saved profile? This replaces the current one and resets your progress.')) return;
   generating = true;
   go('roadmap');
   showRm('loading');
@@ -467,15 +496,20 @@ window.addEventListener('beforeprint', () => document.querySelectorAll('.week').
   updateDaysOut();
   const health = await connect();
   if (!health) {
-    showBanner("Can't reach the LearnPath server. In the VS Code terminal run npm install, then npm start, and open http://localhost:3000 (not the HTML file directly).", true);
+    const message = CONFIGURED_API_BASE
+      ? `Can't reach the API at ${CONFIGURED_API_BASE}. Check the Render service URL and ALLOWED_ORIGINS setting.`
+      : "Can't reach the LearnPath server. In the VS Code terminal run npm install, then npm start, and open http://localhost:3000 (not the HTML file directly).";
+    showBanner(message, true);
   } else {
     if (!health.aiAvailable) {
       const message = health.aiStatus === 'missing-key'
-        ? 'The server is running, but GEMINI_API_KEY is missing in .env. Saving works; add your key and restart to generate roadmaps.'
+        ? `The API is running, but GEMINI_API_KEY is missing from its server environment. ${CONFIGURED_API_BASE ? 'Add it to the Render service Environment settings and redeploy the backend.' : 'Add it to the root .env file and restart the server.'} Saving works; roadmap generation needs this key.`
         : health.aiStatus === 'unreachable'
           ? 'The server is running, but it cannot reach the Gemini API. Check your internet connection or firewall and allow HTTPS access to generativelanguage.googleapis.com.'
+          : health.aiStatus === 'key-rejected'
+            ? `Google rejected GEMINI_API_KEY. Replace it with a valid key in ${CONFIGURED_API_BASE ? 'the Render service Environment settings' : 'the root .env file'}, then redeploy or restart the backend.`
           : `The server is running, but Gemini is not ready for ${health.model}: ${health.aiMessage || health.aiStatus || 'unknown status'}. Check your key, model access, and quota.`;
-      showBanner(message, false);
+      showBanner(message, true);
     }
     try {
       const data = await api(`/state/${uid}`);

@@ -10,14 +10,17 @@ const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'users.json');
 const LEVELS = ['Beginner', 'Basic', 'Intermediate', 'Advanced'];
 const ID_RE = /^[a-zA-Z0-9-]{8,64}$/;
+const ALLOWED_ORIGINS = new Set((process.env.ALLOWED_ORIGINS || '')
+  .split(',').map((origin) => origin.trim().replace(/\/$/, '')).filter(Boolean));
 const EMPTY = () => ({ profile: null, roadmap: null, progress: {} });
 
 const app = express();
 app.use(express.json({ limit: '100kb' }));
-// Allow the API to be called from Live Server (5500) or a file:// page during local development
 app.use('/api', (req, res, next) => {
   const o = req.headers.origin;
-  if (o && (o === 'null' || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o))) {
+  const localOrigin = o && (o === 'null' || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o));
+  if (o && (localOrigin || ALLOWED_ORIGINS.has(o.replace(/\/$/, '')))) {
+    res.vary('Origin');
     res.setHeader('Access-Control-Allow-Origin', o);
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -108,8 +111,8 @@ Learner profile:
 - Preferred learning style: ${p.style}
 
 Rules:
-- Return exactly ${p.weeks} weeks. Each week has exactly ${dpw} study days ("Day 1" to "Day ${dpw}").
-- Each day has 2 or 3 concrete, actionable tasks. Task minutes for a day should add up to about ${mins}.
+- Return exactly ${p.weeks} weeks. Each week has exactly ${dpw} study days ("Day 1" to "Day ${dpw}"). Keep the entire JSON compact.
+- Each day has exactly 2 short, concrete, actionable tasks (each under 100 characters). Their minutes should add up to about ${mins}.
 - Start at the learner's level and build progressively toward the goal. Make the final week a capstone or review.
 - Each week has 2 or 3 recommended resources (courses, books, videos, docs, tools, practice sites). Use well-known real resources only.
   Do NOT invent URLs. Give a short "query" someone can type into a search engine to find it.
@@ -157,7 +160,13 @@ async function checkModel(modelName) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelName)}`;
   try {
     const res = await geminiRequest(url, {}, 10000);
-    if (!res.ok) return { available: false, status: res.status === 404 ? 'model-unavailable' : 'unavailable' };
+    if (!res.ok) {
+      if (res.status === 404) return { available: false, status: 'model-unavailable', message: `The model "${modelName}" is not available to this API key.` };
+      if ([400, 401, 403].includes(res.status)) {
+        return { available: false, status: 'key-rejected', message: 'Google rejected the Gemini API key or its access. Add a valid Gemini API key to .env.' };
+      }
+      return { available: false, status: 'unavailable', message: `Gemini returned HTTP ${res.status}.` };
+    }
     const model = await res.json();
     return { available: model.supportedGenerationMethods?.includes('generateContent') === true, status: 'ready' };
   } catch (e) {
@@ -204,7 +213,7 @@ async function requestGeminiGeneration(options) {
         lastError = error;
       }
 
-      if (response && response.status !== 503) return { response, modelName };
+      if (response && ![429, 503].includes(response.status)) return { response, modelName };
       if (response) lastError = geminiHttpError(response.status);
       if (attempt + 1 < attempts) {
         await response?.body?.cancel();
@@ -291,8 +300,7 @@ function normalize(r, profile) {
                 : { text: str(t?.text, 300), minutes: Math.max(0, parseInt(t?.minutes, 10) || 0) }
             )
             .filter((t) => t.text),
-        }))
-        .filter((d) => d.tasks.length),
+        })),
       resources: (Array.isArray(w.resources) ? w.resources : [])
         .map((x) => ({
           title: str(x?.title, 150),
@@ -301,10 +309,42 @@ function normalize(r, profile) {
           query: str(x?.query, 150) || str(x?.title, 150),
         }))
         .filter((x) => x.title),
-    }))
-    .filter((w) => w.days.length);
+    }));
   if (weeks.length !== profile.weeks) throw new Error('The AI returned the wrong number of weeks.');
   weeks.forEach((w, i) => {
+    w.week = i + 1;
+    w.theme = w.theme || `Week ${i + 1}`;
+    w.checkpoint = w.checkpoint || `Complete the key skills and practice work for ${w.theme}.`;
+    w.days = w.days.slice(0, profile.daysPerWeek);
+    while (w.days.length < profile.daysPerWeek) {
+      const j = w.days.length;
+      w.days.push({ day: `Day ${j + 1}`, focus: `Practice ${w.theme}`, tasks: [] });
+    }
+    for (const day of w.days) {
+      day.focus = day.focus || `Practice ${w.theme}`;
+      day.tasks = day.tasks.slice(0, 3);
+      while (day.tasks.length < 2) {
+        day.tasks.push({
+          text: `Practice ${day.focus} and write a short summary of what you learned.`,
+          minutes: 0,
+        });
+      }
+      const minutesPerTask = Math.max(1, Math.round((profile.hours * 60) / day.tasks.length));
+      day.tasks.forEach((task) => { if (task.minutes <= 0) task.minutes = minutesPerTask; });
+    }
+    const resourceTypes = ['Video', 'Course', 'Book', 'Article', 'Docs', 'Practice', 'Tool'];
+    w.resources.forEach((resource) => {
+      if (!resourceTypes.includes(resource.type)) resource.type = 'Docs';
+    });
+    while (w.resources.length < 2) {
+      const title = `${profile.domain} ${w.theme} learning resource`;
+      w.resources.push({
+        title,
+        type: w.resources.length === 0 ? 'Docs' : 'Practice',
+        why: `Use this to study and practice ${w.theme.toLowerCase()}.`,
+        query: `${profile.domain} ${w.theme} official documentation practice`,
+      });
+    }
     if (w.days.length !== profile.daysPerWeek) throw new Error(`Week ${i + 1} has an incomplete schedule.`);
     if (!w.checkpoint || w.days.some((d) => d.tasks.length < 2 || d.tasks.length > 3 || d.tasks.some((t) => t.minutes <= 0))) {
       throw new Error(`Week ${i + 1} is missing checkpoints or timed tasks.`);
@@ -312,8 +352,6 @@ function normalize(r, profile) {
     if (w.resources.length < 2 || w.resources.some((x) => !['Video', 'Course', 'Book', 'Article', 'Docs', 'Practice', 'Tool'].includes(x.type))) {
       throw new Error(`Week ${i + 1} has incomplete learning resources.`);
     }
-    w.week = i + 1;
-    w.theme = w.theme || `Week ${i + 1}`;
   });
   if (!weeks.length) throw new Error('The AI returned an empty roadmap.');
   return { title: str(r.title, 150) || 'Your learning roadmap', summary: str(r.summary, 600), weeks };
@@ -323,9 +361,13 @@ async function generateRoadmap(profile) {
   const prompt = buildPrompt(profile);
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      return normalize(parseJson(await callGemini(prompt)), profile);
+      const attemptPrompt = attempt === 1
+        ? prompt
+        : `${prompt}\n\nYour previous response failed validation: ${lastError}. Regenerate the complete roadmap JSON. Check every week has exactly ${profile.daysPerWeek} days, every day has 2 or 3 tasks with positive integer minutes, each week has a non-empty checkpoint, and every week has at least 2 resources with valid types.`;
+      return normalize(parseJson(await callGemini(attemptPrompt)), profile);
     } catch (e) {
       if (e.status) throw e; // API/config errors are not retried
+      var lastError = e.message;
       console.error(`Roadmap parse failed (attempt ${attempt}):`, e.message);
     }
   }
@@ -397,7 +439,7 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.status ? err.message : 'Something went wrong on the server.' });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`LearnPath AI running at http://localhost:${PORT}`);
   if (!process.env.GEMINI_API_KEY) console.warn('Warning: GEMINI_API_KEY is missing. Copy .env.example to .env and add your key.');
 });
