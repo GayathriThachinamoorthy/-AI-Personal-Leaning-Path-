@@ -2,27 +2,28 @@ require('dotenv').config();
 const express = require('express');
 const fs = require('fs/promises');
 const path = require('path');
+const { randomUUID } = require('crypto');
 
 const PORT = process.env.PORT || 3000;
 const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite';
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'users.json');
 const LEVELS = ['Beginner', 'Basic', 'Intermediate', 'Advanced'];
 const ID_RE = /^[a-zA-Z0-9-]{8,64}$/;
 const ALLOWED_ORIGINS = new Set((process.env.ALLOWED_ORIGINS || '')
   .split(',').map((origin) => origin.trim().replace(/\/$/, '')).filter(Boolean));
-const EMPTY = () => ({ profile: null, roadmap: null, progress: {} });
+const EMPTY = () => ({ profile: null, roadmap: null, progress: {}, roadmaps: [], activeRoadmapId: null });
 
 const app = express();
-app.use(express.json({ limit: '100kb' }));
+app.use(express.json({ limit: '1mb' }));
 app.use('/api', (req, res, next) => {
   const o = req.headers.origin;
   const localOrigin = o && (o === 'null' || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o));
   if (o && (localOrigin || ALLOWED_ORIGINS.has(o.replace(/\/$/, '')))) {
     res.vary('Origin');
     res.setHeader('Access-Control-Allow-Origin', o);
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
@@ -54,11 +55,26 @@ async function writeAll(data) {
   await fs.writeFile(tmp, JSON.stringify(data, null, 2));
   await fs.rename(tmp, DATA_FILE);
 }
-const readUser = (id) => withLock(async () => (await readAll())[id] || EMPTY());
+function normalizeRecord(record) {
+  const rec = record || EMPTY();
+  if (!Array.isArray(rec.roadmaps)) rec.roadmaps = [];
+  if (rec.roadmap && !rec.roadmaps.length) {
+    const id = `legacy-${String(rec.roadmap.generatedAt || Date.now()).replace(/[^a-zA-Z0-9-]/g, '')}`;
+    rec.roadmaps.push({ id, title: rec.roadmap.title || 'My learning roadmap', roadmap: rec.roadmap, progress: rec.progress || {}, profile: rec.profile, generatedAt: rec.roadmap.generatedAt || new Date().toISOString(), updatedAt: new Date().toISOString() });
+    rec.activeRoadmapId = id;
+  }
+  if (rec.activeRoadmapId && !rec.roadmaps.some((item) => item.id === rec.activeRoadmapId)) rec.activeRoadmapId = null;
+  const active = rec.roadmaps.find((item) => item.id === rec.activeRoadmapId) || rec.roadmaps[0] || null;
+  rec.activeRoadmapId = active?.id || null;
+  rec.roadmap = active?.roadmap || null;
+  rec.progress = active?.progress || {};
+  return rec;
+}
+const readUser = (id) => withLock(async () => normalizeRecord((await readAll())[id]));
 const updateUser = (id, fn) =>
   withLock(async () => {
     const all = await readAll();
-    const rec = all[id] || EMPTY();
+    const rec = normalizeRecord(all[id]);
     const out = fn(rec);
     all[id] = rec;
     await writeAll(all);
@@ -71,6 +87,7 @@ const str = (v, max) => String(v ?? '').trim().slice(0, max);
 function cleanProfile(b = {}) {
   const p = {
     name: str(b.name, 60),
+    email: str(b.email, 254).toLowerCase(),
     background: str(b.background, 300),
     domain: str(b.domain, 100),
     level: str(b.level, 20),
@@ -80,13 +97,18 @@ function cleanProfile(b = {}) {
     weeks: parseInt(b.weeks, 10),
     startDate: /^\d{4}-\d{2}-\d{2}$/.test(b.startDate) ? b.startDate : new Date().toISOString().slice(0, 10),
     studyDays: [...new Set((Array.isArray(b.studyDays) ? b.studyDays : []).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6))].sort(),
+    remindersEnabled: b.remindersEnabled === true || b.remindersEnabled === 'true',
+    reminderTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(String(b.reminderTime || '')) ? String(b.reminderTime) : '18:00',
+    avatar: typeof b.avatar === 'string' && /^data:image\/(png|jpeg|webp);base64,[a-zA-Z0-9+/=]+$/.test(b.avatar) && b.avatar.length <= 180000 ? b.avatar : '',
   };
   p.daysPerWeek = p.studyDays.length;
   if (!p.name) return { error: 'Enter your name.' };
+  if (!p.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.email)) return { error: 'Enter a valid email address.' };
   if (!p.domain) return { error: 'Enter what you want to learn.' };
   if (!LEVELS.includes(p.level)) return { error: 'Choose your current skill level.' };
   if (!p.goal) return { error: 'Describe your learning goal.' };
   if (!(p.hours >= 0.5 && p.hours <= 12)) return { error: 'Daily study hours must be between 0.5 and 12.' };
+  if (p.remindersEnabled && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(b.reminderTime || ''))) return { error: 'Choose a valid reminder time.' };
   if (!p.daysPerWeek) return { error: 'Choose at least one study day.' };
   if (!(p.weeks >= 1 && p.weeks <= 24)) return { error: 'Duration must be between 1 and 24 weeks.' };
   return { profile: p };
@@ -399,8 +421,49 @@ app.post('/api/roadmap/:id', async (req, res, next) => {
     const { profile } = await readUser(req.params.id);
     if (!profile) return res.status(400).json({ error: 'Save your profile first.' });
     const roadmap = { ...(await generateRoadmap(profile)), generatedAt: new Date().toISOString() };
-    await updateUser(req.params.id, (rec) => { rec.roadmap = roadmap; rec.progress = {}; });
-    res.json({ roadmap, progress: {} });
+    const entry = { id: randomUUID(), title: roadmap.title, roadmap, progress: {}, profile, generatedAt: roadmap.generatedAt, updatedAt: roadmap.generatedAt };
+    await updateUser(req.params.id, (rec) => { rec.roadmaps.unshift(entry); rec.activeRoadmapId = entry.id; rec.roadmap = roadmap; rec.progress = {}; });
+    res.json({ roadmap, progress: {}, activeRoadmapId: entry.id, roadmaps: (await readUser(req.params.id)).roadmaps });
+  } catch (e) { next(e); }
+});
+
+app.post('/api/roadmaps/:id/:roadmapId/open', async (req, res, next) => {
+  try {
+    let selected;
+    await updateUser(req.params.id, (rec) => {
+      selected = rec.roadmaps.find((item) => item.id === req.params.roadmapId);
+      if (selected) { rec.activeRoadmapId = selected.id; rec.roadmap = selected.roadmap; rec.progress = selected.progress || {}; }
+    });
+    if (!selected) return res.status(404).json({ error: 'Roadmap not found.' });
+    res.json({ roadmap: selected.roadmap, progress: selected.progress || {}, profile: selected.profile || null, activeRoadmapId: selected.id });
+  } catch (e) { next(e); }
+});
+app.patch('/api/roadmaps/:id/:roadmapId', async (req, res, next) => {
+  try {
+    const title = str(req.body?.title, 150);
+    if (!title) return res.status(400).json({ error: 'Enter a roadmap name.' });
+    let updated;
+    await updateUser(req.params.id, (rec) => {
+      updated = rec.roadmaps.find((item) => item.id === req.params.roadmapId);
+      if (updated) { updated.title = title; updated.roadmap.title = title; updated.updatedAt = new Date().toISOString(); }
+      if (updated?.id === rec.activeRoadmapId) rec.roadmap = updated.roadmap;
+    });
+    if (!updated) return res.status(404).json({ error: 'Roadmap not found.' });
+    res.json({ roadmap: updated });
+  } catch (e) { next(e); }
+});
+app.delete('/api/roadmaps/:id/:roadmapId', async (req, res, next) => {
+  try {
+    let found = false;
+    await updateUser(req.params.id, (rec) => {
+      found = rec.roadmaps.some((item) => item.id === req.params.roadmapId);
+      rec.roadmaps = rec.roadmaps.filter((item) => item.id !== req.params.roadmapId);
+      if (rec.activeRoadmapId === req.params.roadmapId) rec.activeRoadmapId = rec.roadmaps[0]?.id || null;
+      const active = rec.roadmaps.find((item) => item.id === rec.activeRoadmapId);
+      rec.roadmap = active?.roadmap || null; rec.progress = active?.progress || {};
+    });
+    if (!found) return res.status(404).json({ error: 'Roadmap not found.' });
+    res.json({ roadmaps: (await readUser(req.params.id)).roadmaps });
   } catch (e) { next(e); }
 });
 
@@ -428,7 +491,11 @@ app.put('/api/progress/:id', async (req, res, next) => {
       const day = roadmap.weeks[weekIndex]?.days[dayIndex];
       if (day?.tasks[taskIndex]) progress[key] = true;
     }
-    await updateUser(req.params.id, (rec) => { rec.progress = progress; });
+    await updateUser(req.params.id, (rec) => {
+      rec.progress = progress;
+      const active = rec.roadmaps.find((item) => item.id === rec.activeRoadmapId);
+      if (active) { active.progress = progress; active.updatedAt = new Date().toISOString(); }
+    });
     res.json({ progress });
   } catch (e) { next(e); }
 });
@@ -440,6 +507,6 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`LearnPath AI running at http://localhost:${PORT}`);
+  console.log(`CogniPath running at http://localhost:${PORT}`);
   if (!process.env.GEMINI_API_KEY) console.warn('Warning: GEMINI_API_KEY is missing. Copy .env.example to .env and add your key.');
 });

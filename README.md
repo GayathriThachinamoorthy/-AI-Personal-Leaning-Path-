@@ -1,4 +1,6 @@
-# LearnPath AI
+# CogniPath 🎯
+
+**Intelligence meets personalized learning.**
 
 Personalized AI learning roadmaps. This repository is being reorganized toward the frontend/backend layout below. The current complete app remains available in the root Express server and `public/`; the new React and Flask folders are the migration foundation, so the legacy routes and screens are still the production implementation.
 
@@ -41,6 +43,8 @@ npm.cmd start
 ```
 
 Open http://localhost:3000. Do not commit `.env` or API keys.
+
+The Express API stores profile photos, roadmaps, and per-roadmap progress in `data/users.json`. This survives browser refreshes and local server restarts. To keep that file across Render deploys/restarts, attach a persistent disk to the Render web service and set `DATA_DIR` to its mount path (for example `/var/data`). Render's filesystem is otherwise ephemeral, and persistent disks are available on paid services; see [Render disks](https://render.com/docs/disks) and [Render free services](https://render.com/docs/free).
 
 ## Deploy frontend to Vercel and API to Render
 

@@ -1,11 +1,16 @@
 'use strict';
 
 const $ = (s, r = document) => r.querySelector(s);
-const state = { profile: null, roadmap: null, progress: {}, sched: [] };
+const state = { profile: null, roadmap: null, progress: {}, sched: [], roadmaps: [], activeRoadmapId: null, activeProfile: null };
+const IDENTITY_KEY = 'cognipath_identity';
+let identity = (() => { try { return JSON.parse(localStorage.getItem(IDENTITY_KEY) || 'null') || {}; } catch { return {}; } })();
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_MS = 86400000;
 let BASE = '';
 let generating = false;
+let reminderTimer = null;
+let lastReminderDate = '';
+let journeyFrame = 0;
 const CONFIGURED_API_BASE = String(window.LEARNPATH_API_URL || '').trim().replace(/\/+$/, '');
 
 const uid = (() => {
@@ -88,13 +93,70 @@ const fmtDate = (d, long) => d.toLocaleDateString(undefined, { weekday: long ? '
 const shortDate = (d) => d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 const sameDay = (a, b) => a.getTime() === b.getTime();
 
+/* ---------- home journey animation ---------- */
+function restartJourneyAnimation() {
+  const svg = $('.hero-art');
+  if (!svg) return;
+  if (journeyFrame) cancelAnimationFrame(journeyFrame);
+  journeyFrame = 0;
+  const path = svg.querySelector('.trail');
+  const milestones = [...svg.querySelectorAll('.milestone')];
+  milestones.forEach((node) => node.classList.remove('is-reached'));
+  const celebration = $('#journey-celebration');
+  celebration?.classList.remove('is-visible');
+  path.style.strokeDashoffset = '1';
+  const positions = milestones.map((node, index) => {
+    const point = Number(node.dataset.progress);
+    return Number.isFinite(point) ? point : index / Math.max(1, milestones.length - 1);
+  });
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  if (reduced) {
+    path.style.strokeDashoffset = '0';
+    milestones.forEach((node) => node.classList.add('is-reached'));
+    celebration?.classList.add('is-visible');
+    return;
+  }
+  const duration = 4800;
+  const startedAt = performance.now();
+  const reached = new Set();
+  if (positions[0] <= 0.0001) {
+    milestones[0].classList.add('is-reached');
+    reached.add(0);
+  }
+  const drawFrame = (now) => {
+    const progress = Math.max(0, Math.min(1, (now - startedAt) / duration));
+    let drawnProgress = progress;
+    const nextMilestone = positions.findIndex((_, index) => !reached.has(index));
+    if (nextMilestone >= 0 && progress >= positions[nextMilestone]) {
+      drawnProgress = positions[nextMilestone];
+      milestones[nextMilestone].classList.add('is-reached');
+      reached.add(nextMilestone);
+      if (milestones[nextMilestone].dataset.milestone === '12') celebration?.classList.add('is-visible');
+    }
+    path.style.strokeDashoffset = String(1 - drawnProgress);
+    if (progress < 1) journeyFrame = requestAnimationFrame(drawFrame);
+    else {
+      path.style.strokeDashoffset = '0';
+      celebration?.classList.add('is-visible');
+      journeyFrame = 0;
+    }
+  };
+  journeyFrame = requestAnimationFrame(drawFrame);
+}
+
 /* ---------- routing ---------- */
-const VIEWS = ['home', 'profile', 'roadmap'];
+const VIEWS = ['home', 'login', 'profile', 'roadmap', 'library'];
 function route() {
   const name = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home';
   VIEWS.forEach((v) => { $('#view-' + v).hidden = v !== name; });
   document.querySelectorAll('[data-link]').forEach((a) => a.classList.toggle('active', a.dataset.link === name));
   if (name === 'roadmap' && !generating) renderRoadmapView();
+  if (name === 'library') renderRoadmapLibrary();
+  if (name === 'home') restartJourneyAnimation();
+  if (name === 'login') {
+    $('#identity-name').value = identity.name || state.profile?.name || '';
+    $('#identity-email').value = identity.email || state.profile?.email || '';
+  }
   window.scrollTo(0, 0);
 }
 window.addEventListener('hashchange', route);
@@ -102,6 +164,9 @@ const go = (v) => { if (location.hash === '#' + v) route(); else location.hash =
 
 /* ---------- profile ---------- */
 const form = $('#profile-form');
+const identityForm = $('#identity-form');
+const profileCard = $('#profile-card');
+let avatarData = '';
 const hoursLabel = (v) => `${v} ${Number(v) === 1 ? 'hour' : 'hours'}`;
 $('#hours').addEventListener('input', (e) => ($('#hours-out').textContent = hoursLabel(e.target.value)));
 function updateDaysOut() {
@@ -110,9 +175,62 @@ function updateDaysOut() {
 }
 form.querySelector('.days').addEventListener('change', updateDaysOut);
 
+const reminderToggle = $('#reminders-enabled');
+const reminderTime = $('#reminder-time');
+const reminderHelp = $('#reminder-help');
+function updateReminderHelp(requestPermission = false) {
+  reminderTime.disabled = !reminderToggle.checked;
+  if (!reminderToggle.checked) {
+    reminderHelp.textContent = 'Reminders are off. Turn them on to choose a time for your selected study days.';
+    return;
+  }
+  if (!window.isSecureContext || !('Notification' in window)) {
+    reminderHelp.textContent = 'Browser notifications are unavailable here. An in-app reminder will appear at this time while CogniPath is open.';
+    return;
+  }
+  const showStatus = () => {
+    if (!reminderToggle.checked) { updateReminderHelp(false); return; }
+    if (Notification.permission === 'granted') {
+      reminderHelp.textContent = 'Browser notifications are enabled. Reminders run at this time on selected study days while CogniPath is open.';
+    } else if (Notification.permission === 'denied') {
+      reminderHelp.textContent = 'Browser notifications are blocked. An in-app reminder will appear at this time while CogniPath is open.';
+    } else {
+      reminderHelp.textContent = 'Save your profile to keep this setting. Browser permission is needed for desktop notifications; otherwise a reminder appears in the app.';
+    }
+  };
+  if (requestPermission && Notification.permission === 'default') {
+    Notification.requestPermission().then(showStatus).catch(() => {
+      reminderHelp.textContent = 'Permission could not be requested. An in-app reminder will appear while CogniPath is open.';
+    });
+  } else showStatus();
+}
+reminderToggle.addEventListener('change', () => updateReminderHelp(reminderToggle.checked));
+$('#reminder-alert .reminder-dismiss').addEventListener('click', () => { $('#reminder-alert').hidden = true; });
+
+identityForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const error = $('#identity-error'); error.hidden = true;
+  if (!identityForm.reportValidity()) return;
+  identity = { name: $('#identity-name').value.trim(), email: $('#identity-email').value.trim().toLowerCase() };
+  if (!identity.name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identity.email)) {
+    error.textContent = 'Enter your full name and a valid email address.'; error.hidden = false; return;
+  }
+  localStorage.setItem(IDENTITY_KEY, JSON.stringify(identity));
+  if (state.profile) fillForm(state.profile);
+  form.elements.name.value = identity.name;
+  form.elements.email.value = identity.email;
+  if (state.profile?.email === identity.email && state.profile?.name === identity.name) { profileCard.hidden = false; form.hidden = true; renderProfileCard(); }
+  else { form.hidden = false; profileCard.hidden = true; }
+  go('profile');
+});
+$('#explore-features').addEventListener('click', () => $('#features').scrollIntoView({ behavior: 'smooth', block: 'start' }));
+
 function fillForm(p) {
   if (!p) return;
-  for (const k of ['name', 'domain', 'background', 'goal', 'hours', 'weeks', 'style']) if (p[k] != null) form.elements[k].value = p[k];
+  if (p.email) form.elements.email.value = String(p.email).trim().toLowerCase();
+  for (const k of ['name', 'domain', 'background', 'goal', 'hours', 'weeks', 'style', 'reminderTime']) if (p[k] != null) form.elements[k].value = p[k];
+  reminderToggle.checked = p.remindersEnabled === true;
+  updateReminderHelp(false);
   const r = form.querySelector(`input[name=level][value="${p.level}"]`);
   if (r) r.checked = true;
   if (p.startDate) form.elements.startDate.value = p.startDate;
@@ -121,7 +239,100 @@ function fillForm(p) {
   }
   $('#hours-out').textContent = hoursLabel(p.hours);
   updateDaysOut();
+  avatarData = p.avatar || '';
+  renderAvatarPreview();
 }
+
+function renderAvatarPreview() {
+  const img = $('#avatar-preview');
+  img.hidden = !avatarData;
+  if (avatarData) img.src = avatarData;
+  $('#avatar-clear').hidden = !avatarData;
+}
+$('#avatar-file').addEventListener('change', (event) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { toast('Choose an image file.', true); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement('canvas');
+      const side = Math.min(image.width, image.height, 320);
+      canvas.width = side; canvas.height = side;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(image, (image.width - side) / 2, (image.height - side) / 2, side, side, 0, 0, side, side);
+      avatarData = canvas.toDataURL('image/jpeg', .78);
+      renderAvatarPreview();
+    };
+    image.onerror = () => toast('Could not read that image.', true);
+    image.src = reader.result;
+  };
+  reader.onerror = () => toast('Could not read that image.', true);
+  reader.readAsDataURL(file);
+});
+$('#avatar-clear').addEventListener('click', () => { avatarData = ''; $('#avatar-file').value = ''; renderAvatarPreview(); });
+
+function renderProfileCard() {
+  const p = state.profile;
+  if (!p) { profileCard.hidden = true; form.hidden = false; return; }
+  profileCard.hidden = false;
+  form.hidden = true;
+  profileCard.replaceChildren(
+    h('div', { class: 'profile-card-top' },
+      p.avatar ? h('img', { class: 'profile-avatar', src: p.avatar, alt: `${p.name}'s profile` }) : h('div', { class: 'profile-avatar avatar-placeholder', 'aria-hidden': 'true' }, (p.name || '?').slice(0, 1).toUpperCase()),
+      h('div', {}, h('p', { class: 'eyebrow' }, 'YOUR LEARNING PROFILE'), h('h2', {}, p.name), h('p', { class: 'muted' }, p.email || identity.email || ''), h('p', { class: 'muted' }, `${p.level} · ${p.domain}`))),
+    h('p', { class: 'profile-goal' }, h('b', {}, 'Your goal'), h('br'), p.goal),
+    h('div', { class: 'actions' }, h('button', { class: 'btn btn-ghost small', type: 'button', onclick: () => { if (!identity.email) { go('login'); return; } form.hidden = false; profileCard.hidden = true; } }, 'Edit profile'), h('button', { class: 'btn btn-primary small', type: 'button', onclick: () => go('roadmap') }, 'Continue')));
+}
+
+function reminderIsInLearningWindow(profile, now) {
+  if (!profile || !profile.remindersEnabled || !(Number(profile.weeks) > 0)) return false;
+  const start = String(profile.startDate || iso(now)).split('-').map(Number);
+  if (start.length !== 3 || start.some((n) => !Number.isFinite(n) || n < 1)) return false;
+  const startDay = Date.UTC(start[0], start[1] - 1, start[2]) / DAY_MS;
+  const todayDay = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / DAY_MS;
+  const daysSinceStart = todayDay - startDay;
+  return daysSinceStart >= 0 && daysSinceStart < Number(profile.weeks) * 7;
+}
+
+function checkLearningReminder() {
+  const p = state.profile;
+  const now = new Date();
+  if (!reminderIsInLearningWindow(p, now) || !Array.isArray(p.studyDays) || !p.studyDays.map(Number).includes(now.getDay())) return;
+  const [hours, minutes] = String(p.reminderTime || '').split(':').map(Number);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes) || now.getHours() * 60 + now.getMinutes() < hours * 60 + minutes) return;
+  const today = iso(now);
+  const key = `cognipath_reminder_last_${uid}`;
+  if (lastReminderDate === today) return;
+  try { if (localStorage.getItem(key) === today) { lastReminderDate = today; return; } } catch { /* Continue with this tab's reminder schedule. */ }
+  lastReminderDate = today;
+  try { localStorage.setItem(key, today); } catch { /* In-memory de-duplication below still applies. */ }
+  if (!window.isSecureContext || !('Notification' in window) || Notification.permission !== 'granted') {
+    $('#reminder-alert').hidden = false;
+    return;
+  }
+  try {
+    const notification = new Notification('CogniPath 🎯', {
+      body: '🔥 Your learning journey is waiting! Complete today’s goal and get one step closer to your dream!',
+      tag: `cognipath-learning-${today}`,
+    });
+    notification.onclick = () => { window.focus(); notification.close(); go('roadmap'); };
+  } catch {
+    $('#reminder-alert').hidden = false;
+  }
+}
+
+function startLearningReminders(profile = state.profile) {
+  clearInterval(reminderTimer);
+  reminderTimer = null;
+  state.profile = profile;
+  if (!profile?.remindersEnabled) return;
+  checkLearningReminder();
+  reminderTimer = setInterval(checkLearningReminder, 20000);
+}
+window.addEventListener('focus', checkLearningReminder);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkLearningReminder(); });
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -129,6 +340,7 @@ form.addEventListener('submit', async (e) => {
   err.hidden = true;
   try {
     state.profile = await saveProfileFromForm();
+    renderProfileCard();
     toast('Profile saved');
   } catch (ex) {
     err.textContent = ex.message;
@@ -142,6 +354,11 @@ async function saveProfileFromForm() {
   if (!form.reportValidity()) throw new Error('Complete the required profile fields first.');
   const fd = new FormData(form);
   const profileInput = Object.fromEntries(fd);
+  profileInput.avatar = avatarData;
+  profileInput.remindersEnabled = fd.has('remindersEnabled');
+  profileInput.reminderTime = String(form.elements.reminderTime.value || '18:00');
+  profileInput.email = String(profileInput.email || identity.email || state.profile?.email || '').trim().toLowerCase();
+  if (!profileInput.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profileInput.email)) throw new Error('Enter your email from the welcome step first.');
   profileInput.studyDays = fd.getAll('studyDays').map(Number);
   if (!profileInput.studyDays.length) {
     err.textContent = 'Choose at least one study day.';
@@ -153,6 +370,10 @@ async function saveProfileFromForm() {
   try {
     const { profile } = await api(`/profile/${uid}`, { method: 'PUT', body: JSON.stringify(profileInput) });
     state.profile = profile;
+    identity = { name: profile.name, email: profile.email };
+    localStorage.setItem(IDENTITY_KEY, JSON.stringify(identity));
+    startLearningReminders(profile);
+    updateReminderHelp(false);
     return profile;
   } finally {
     buttons.forEach((button) => { button.disabled = false; });
@@ -171,19 +392,88 @@ function renderRoadmapView() {
     $('#rm-empty-title').textContent = 'Create your profile first';
     $('#rm-empty-text').textContent = 'Tell us what you want to learn and we will build your roadmap.';
     btn.textContent = 'Create My Path';
-    btn.onclick = () => go('profile');
+    btn.onclick = () => go('login');
   } else {
     $('#rm-empty-title').textContent = 'Ready to build your roadmap';
     $('#rm-empty-text').textContent = `${state.profile.domain} for ${state.profile.weeks} weeks at ${hoursLabel(state.profile.hours)} a day, starting from ${state.profile.level.toLowerCase()} level.`;
-    btn.textContent = 'Generate my roadmap';
+    btn.textContent = 'Generate Roadmap';
     btn.onclick = generate;
   }
   showRm('empty');
 }
 
+function renderRoadmapLibrary() {
+  const wrap = $('#roadmap-list');
+  wrap.replaceChildren();
+  const items = state.roadmaps || [];
+  $('#roadmap-library-empty').hidden = items.length > 0;
+  items.forEach((item) => {
+    const plan = item.roadmap || {};
+    const tasks = (plan.weeks || []).flatMap((week) => week.days || []).flatMap((day) => day.tasks || []);
+    const done = tasks.filter((_, index) => item.progress?.[taskKeyAt(plan, index)]).length;
+    const pct = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
+    const active = item.id === state.activeRoadmapId;
+    const card = h('article', { class: 'roadmap-card' },
+      h('div', { class: 'roadmap-card-top' }, h('span', { class: 'eyebrow' }, active ? 'CURRENT PATH' : 'SAVED ROADMAP'), h('span', { class: 'library-date' }, new Date(item.generatedAt || Date.now()).toLocaleDateString())),
+      h('h2', {}, item.title || plan.title || 'Learning roadmap'),
+      h('p', { class: 'muted' }, `${item.profile?.domain || state.profile?.domain || 'Learning path'} · ${(plan.weeks || []).length} weeks`),
+      h('div', { class: 'bar library-bar' }, h('div', { style: `width:${pct}%` })),
+      h('p', { class: 'library-progress' }, `${pct}% complete · ${done}/${tasks.length} tasks`),
+      h('div', { class: 'actions' },
+        h('button', { class: 'btn btn-primary small', type: 'button', onclick: () => openRoadmap(item.id) }, active ? 'Continue Learning' : 'Open roadmap'),
+        h('button', { class: 'btn btn-ghost small', type: 'button', onclick: () => renameRoadmap(item) }, 'Edit name'),
+        h('button', { class: 'btn btn-danger small', type: 'button', onclick: () => deleteRoadmap(item) }, 'Delete')));
+    wrap.append(card);
+  });
+}
+
+function taskKeyAt(plan, target) {
+  let index = 0;
+  for (let wi = 0; wi < (plan.weeks || []).length; wi++) for (let di = 0; di < (plan.weeks[wi].days || []).length; di++) for (let ti = 0; ti < (plan.weeks[wi].days[di].tasks || []).length; ti++) {
+    if (index++ === target) return tk(wi, di, ti);
+  }
+  return '';
+}
+
+async function openRoadmap(id) {
+  try {
+    const data = await api(`/roadmaps/${uid}/${encodeURIComponent(id)}/open`, { method: 'POST' });
+    state.roadmap = data.roadmap; state.progress = data.progress || {}; state.activeRoadmapId = data.activeRoadmapId;
+    state.activeProfile = data.profile || state.profile;
+    state.roadmaps = state.roadmaps.map((item) => ({ ...item, ...(item.id === id ? { roadmap: data.roadmap, progress: data.progress } : {}) }));
+    go('roadmap');
+  } catch (error) { toast(error.message, true); }
+}
+
+async function renameRoadmap(item) {
+  const title = prompt('Roadmap name', item.title || item.roadmap?.title || '');
+  if (title == null) return;
+  if (!title.trim()) { toast('Enter a roadmap name.', true); return; }
+  try {
+    const { roadmap } = await api(`/roadmaps/${uid}/${encodeURIComponent(item.id)}`, { method: 'PATCH', body: JSON.stringify({ title: title.trim() }) });
+    item.title = roadmap.title; item.roadmap = roadmap;
+    if (item.id === state.activeRoadmapId) state.roadmap = roadmap;
+    renderRoadmapLibrary(); renderRoadmapView(); toast('Roadmap renamed');
+  } catch (error) { toast(error.message, true); }
+}
+
+async function deleteRoadmap(item) {
+  if (!confirm(`Delete “${item.title || item.roadmap?.title || 'this roadmap'}” and its saved progress?`)) return;
+  try {
+    const data = await api(`/roadmaps/${uid}/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+    state.roadmaps = data.roadmaps || [];
+    if (state.activeRoadmapId === item.id) {
+      const active = state.roadmaps[0];
+      if (active) await openRoadmap(active.id);
+      else { state.activeRoadmapId = null; state.roadmap = null; state.progress = {}; state.activeProfile = state.profile; }
+    }
+    renderRoadmapLibrary(); renderRoadmapView(); toast('Roadmap deleted');
+  } catch (error) { toast(error.message, true); }
+}
+
 async function generate() {
   if (generating) return;
-  if (state.roadmap && !confirm('Generate a new roadmap using your current profile? This replaces the current one and resets your progress.')) return;
+  if (state.roadmap && !confirm('Generate a new roadmap using your current profile? Your current roadmap and progress will remain saved.')) return;
   try {
     await saveProfileFromForm();
   } catch (error) {
@@ -202,6 +492,9 @@ async function generate() {
     const data = await api(`/roadmap/${uid}`, { method: 'POST' });
     state.roadmap = data.roadmap;
     state.progress = {};
+    state.activeProfile = state.profile;
+    state.activeRoadmapId = data.activeRoadmapId;
+    state.roadmaps = data.roadmaps || state.roadmaps;
     $('#resume-btn').hidden = false;
     toast('Your roadmap is ready');
     go('roadmap');
@@ -217,7 +510,7 @@ async function generate() {
 const tk = (w, d, t) => `${w}-${d}-${t}`;
 
 function buildSchedule() {
-  const p = state.profile || {};
+  const p = state.activeProfile || state.profile || {};
   const allowed = p.studyDays && p.studyDays.length ? p.studyDays : [1, 2, 3, 4, 5];
   const start = p.startDate ? parseDate(p.startDate) : midnight(new Date(state.roadmap.generatedAt || Date.now()));
   const need = state.roadmap.weeks.reduce((n, w) => n + w.days.length, 0);
@@ -262,7 +555,7 @@ function taskRow(wi, di, ti, t) {
 }
 
 function renderRoadmap() {
-  const rm = state.roadmap, p = state.profile;
+  const rm = state.roadmap, p = state.activeProfile || state.profile;
   buildSchedule();
   $('#rm-title').textContent = rm.title;
   $('#rm-summary').textContent = rm.summary;
@@ -422,6 +715,8 @@ let saveTimer;
 function toggle(w, d, t, checked) {
   const key = tk(w, d, t);
   if (checked) state.progress[key] = true; else delete state.progress[key];
+  const active = state.roadmaps.find((item) => item.id === state.activeRoadmapId);
+  if (active) active.progress = { ...state.progress };
   document.querySelectorAll(`input[data-key="${key}"]`).forEach((c) => (c.checked = checked));
   const { total, done } = updateProgressUI();
   if (checked && done === total) toast('Roadmap complete. Well done!');
@@ -455,10 +750,16 @@ function jumpTo(wi, di) {
   setTimeout(() => el.classList.remove('flash'), 1700);
 }
 
-$('#rm-edit').addEventListener('click', () => go('profile'));
+$('#rm-edit').addEventListener('click', () => {
+  if (!identity.email) { go('login'); return; }
+  fillForm(state.profile); profileCard.hidden = true; form.hidden = false; go('profile');
+});
 $('#rm-print').addEventListener('click', () => window.print());
 $('#rm-regen').addEventListener('click', generate);
 $('#profile-generate').addEventListener('click', generate);
+$('#rm-library').addEventListener('click', () => go('library'));
+$('#rm-rename').addEventListener('click', () => { const item = state.roadmaps.find((r) => r.id === state.activeRoadmapId); if (item) renameRoadmap(item); });
+$('#rm-delete').addEventListener('click', async () => { const item = state.roadmaps.find((r) => r.id === state.activeRoadmapId); if (item) await deleteRoadmap(item); });
 
 $('#question-form').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -498,7 +799,7 @@ window.addEventListener('beforeprint', () => document.querySelectorAll('.week').
   if (!health) {
     const message = CONFIGURED_API_BASE
       ? `Can't reach the API at ${CONFIGURED_API_BASE}. Check the Render service URL and ALLOWED_ORIGINS setting.`
-      : "Can't reach the LearnPath server. In the VS Code terminal run npm install, then npm start, and open http://localhost:3000 (not the HTML file directly).";
+      : "Can't reach the CogniPath server. In the VS Code terminal run npm install, then npm start, and open http://localhost:3000 (not the HTML file directly).";
     showBanner(message, true);
   } else {
     if (!health.aiAvailable) {
@@ -513,8 +814,16 @@ window.addEventListener('beforeprint', () => document.querySelectorAll('.week').
     }
     try {
       const data = await api(`/state/${uid}`);
-      Object.assign(state, { profile: data.profile, roadmap: data.roadmap, progress: data.progress || {} });
+      Object.assign(state, { profile: data.profile, roadmap: data.roadmap, progress: data.progress || {}, roadmaps: data.roadmaps || [], activeRoadmapId: data.activeRoadmapId || null });
+      if (state.profile?.email) {
+        identity = { name: state.profile.name, email: state.profile.email };
+        localStorage.setItem(IDENTITY_KEY, JSON.stringify(identity));
+      }
+      const active = state.roadmaps.find((item) => item.id === state.activeRoadmapId);
+      state.activeProfile = active?.profile || state.profile;
       fillForm(state.profile);
+      startLearningReminders(state.profile);
+      renderProfileCard();
       $('#resume-btn').hidden = !state.roadmap;
     } catch (ex) { toast(ex.message, true); }
   }

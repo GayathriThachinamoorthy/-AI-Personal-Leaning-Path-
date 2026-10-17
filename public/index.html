@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LearnPath AI | A study plan built around you</title>
+  <title>CogniPath 🎯 | Intelligence meets personalized learning.</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;800&display=swap" rel="stylesheet">
@@ -11,11 +11,12 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="#home">LearnPath<span>AI</span></a>
+    <div class="brand-wrap"><a class="brand" href="#home" aria-label="CogniPath 🎯"><span class="brand-word">CogniPath</span> <span class="brand-icon" aria-hidden="true">&#x1F3AF;</span></a><small class="brand-tagline">Intelligence meets personalized learning.</small></div>
     <nav aria-label="Main">
       <a href="#home" data-link="home">Home</a>
       <a href="#profile" data-link="profile">My profile</a>
-      <a href="#roadmap" data-link="roadmap">My roadmap</a>
+      <a href="#roadmap" data-link="roadmap">Generate Roadmap</a>
+      <a href="#library" data-link="library">Dashboard</a>
     </nav>
   </header>
   <div id="banner" class="banner" role="alert" hidden></div>
@@ -26,34 +27,56 @@
       <div class="hero">
         <div class="hero-text">
           <h1>Tell us what you want to learn. Get a plan you can finish.</h1>
-          <p class="lead">Pick any subject, from Python to pottery. LearnPath AI builds a week-by-week roadmap with daily tasks and resources that fit your level and your schedule.</p>
+          <p class="lead">Pick any subject, from Python to pottery. CogniPath builds an AI-powered, week-by-week roadmap with daily tasks and resources that fit your level and schedule.</p>
           <div class="actions">
-            <a class="btn btn-primary" href="#profile">Create My Path</a>
-            <a class="btn btn-ghost" id="resume-btn" href="#roadmap" hidden>Open my roadmap</a>
+            <a class="btn btn-primary" href="#login">Create My Path</a>
+            <button class="btn btn-ghost" id="explore-features" type="button">Explore Features</button>
+            <a class="btn btn-ghost" id="resume-btn" href="#library" hidden>Continue Learning</a>
           </div>
         </div>
-        <svg class="hero-art" viewBox="0 0 420 460" role="img" aria-label="A winding path with four weekly milestones">
-          <path class="trail-base" d="M60 420 C 60 340, 340 360, 340 280 S 80 240, 90 160 S 330 120, 330 40"/>
-          <path class="trail" pathLength="1" d="M60 420 C 60 340, 340 360, 340 280 S 80 240, 90 160 S 330 120, 330 40"/>
-          <g class="node done"><circle cx="60" cy="420" r="16"/><path d="M52 420l6 6 10-12"/><text x="86" y="426">Week 1: Foundations</text></g>
-          <g class="node done"><circle cx="340" cy="280" r="16"/><path d="M332 280l6 6 10-12"/><text x="316" y="318" text-anchor="end">Week 4: First project</text></g>
-          <g class="node"><circle cx="90" cy="160" r="16"/><text x="116" y="166">Week 8: Real-world skills</text></g>
-          <g class="node"><circle cx="330" cy="40" r="16"/><text x="304" y="46" text-anchor="end">Week 12: Your goal</text></g>
-        </svg>
+        <div class="journey-art-wrap">
+          <svg class="hero-art" viewBox="0 0 420 460" role="img" aria-label="An animated learning journey with Week 1, Week 4, Week 8, and Week 12 milestones">
+            <path class="trail-base" d="M60 420 C 60 340, 340 360, 340 280 S 80 240, 90 160 S 330 120, 330 40"/>
+            <path class="trail" pathLength="1" d="M60 420 C 60 340, 340 360, 340 280 S 80 240, 90 160 S 330 120, 330 40"/>
+            <g class="node milestone" data-milestone="1" data-progress="0"><circle cx="60" cy="420" r="16"/><path class="milestone-check" d="M52 420l6 6 10-12"/><text x="86" y="426">Week 1: Foundations</text></g>
+            <g class="node milestone" data-milestone="4" data-progress="0.36128445"><circle cx="340" cy="280" r="16"/><path class="milestone-check" d="M332 280l6 6 10-12"/><text x="316" y="318" text-anchor="end">Week 4: First project</text></g>
+            <g class="node milestone" data-milestone="8" data-progress="0.68742543"><circle cx="90" cy="160" r="16"/><path class="milestone-check" d="M82 160l6 6 10-12"/><text x="116" y="166">Week 8: Real-world skills</text></g>
+            <g class="node milestone" data-milestone="12" data-progress="1"><circle cx="330" cy="40" r="16"/><text x="304" y="46" text-anchor="end">Week 12: Your goal</text></g>
+            <g id="journey-celebration" class="journey-celebration" aria-hidden="true"><text class="completion-emoji" x="330" y="47" text-anchor="middle">🎓</text></g>
+          </svg>
+        </div>
       </div>
-      <ol class="steps">
+      <ol class="steps" id="features">
         <li><h2>Tell us about you</h2><p>Your domain, skill level, goal, daily study time and how long you want to take.</p></li>
         <li><h2>Get your roadmap</h2><p>Gemini writes weekly themes, daily tasks and resources matched to your profile.</p></li>
         <li><h2>Check things off</h2><p>Tick tasks as you finish them. Your progress is saved, so you can pick up any day.</p></li>
       </ol>
     </section>
 
+    <!-- IDENTITY -->
+    <section id="view-login" class="view" hidden>
+      <div class="panel onboarding-panel">
+        <span class="eyebrow">YOUR LEARNING JOURNEY STARTS HERE</span>
+        <h1>Welcome to CogniPath 🎯</h1>
+        <p class="muted">Tell us who you are to continue to your personalized learning profile.</p>
+        <form id="identity-form" novalidate>
+          <div class="field"><label for="identity-name">Full Name</label><input id="identity-name" name="name" required maxlength="60" autocomplete="name" placeholder="Your full name"></div>
+          <div class="field"><label for="identity-email">Email ID</label><input id="identity-email" name="email" type="email" required maxlength="254" autocomplete="email" placeholder="you@example.com"></div>
+          <p id="identity-error" class="error" role="alert" hidden></p>
+          <div class="actions"><button class="btn btn-primary" type="submit">Continue</button><a class="btn btn-ghost" href="#home">Back to Home</a></div>
+        </form>
+      </div>
+    </section>
+
     <!-- PROFILE -->
     <section id="view-profile" class="view" hidden>
       <div class="panel">
         <h1>Your learning profile</h1>
-        <p class="muted">Saved on this device's account, so you can come back and update it anytime.</p>
+        <p class="muted">Your profile is saved to your account, so you can come back and update it anytime.</p>
+        <article id="profile-card" class="profile-card" hidden></article>
         <form id="profile-form" novalidate>
+          <input id="profile-email" name="email" type="hidden">
+          <div class="field avatar-field"><label for="avatar-file">Profile photo <span class="muted">(optional)</span></label><div class="avatar-row"><img id="avatar-preview" alt="Profile preview" hidden><input id="avatar-file" type="file" accept="image/png,image/jpeg,image/webp"><button id="avatar-clear" class="btn btn-ghost small" type="button" hidden>Remove photo</button></div><p class="muted">A square crop is saved with your profile.</p></div>
           <div class="field">
             <label for="name">Your name</label>
             <input id="name" name="name" maxlength="60" required autocomplete="given-name">
@@ -104,6 +127,18 @@
               </select>
             </div>
           </div>
+          <fieldset class="field reminder-settings">
+            <legend>Learning reminders <span class="muted">(optional)</span></legend>
+            <label class="reminder-toggle" for="reminders-enabled">
+              <input id="reminders-enabled" name="remindersEnabled" type="checkbox" value="true">
+              <span>Send me a motivational reminder while CogniPath is open</span>
+            </label>
+            <div class="reminder-time-row">
+              <label for="reminder-time">Preferred reminder time</label>
+              <input id="reminder-time" name="reminderTime" type="time" value="18:00" disabled>
+            </div>
+            <p id="reminder-help" class="muted" role="status">Reminders follow your selected study days and learning duration. Save your profile to keep this setting.</p>
+          </fieldset>
           <div class="row row-2">
             <div class="field">
               <label for="startDate">Start date</label>
@@ -125,10 +160,16 @@
           <p id="form-error" class="error" role="alert" hidden></p>
           <div class="actions">
             <button class="btn btn-primary" type="submit" name="action" value="save">Save My Profile</button>
-            <button class="btn btn-ghost" id="profile-generate" type="button">Generate My Path</button>
+            <button class="btn btn-ghost" id="profile-generate" type="button">Generate Roadmap</button>
           </div>
         </form>
       </div>
+    </section>
+
+    <section id="view-library" class="view" hidden>
+      <div class="library-head"><div><h1>Your Learning Dashboard</h1><p class="lead">Pick up where you left off, or revisit a completed learning path.</p></div><a class="btn btn-primary" href="#login">Create a new path</a></div>
+      <div id="roadmap-list" class="roadmap-list"></div>
+      <div id="roadmap-library-empty" class="panel center" hidden><h2>Your roadmap library is ready</h2><p class="muted">Generate your first AI learning path and it will be saved here.</p><a class="btn btn-primary" href="#login">Create My Path</a></div>
     </section>
 
     <!-- ROADMAP -->
@@ -147,13 +188,18 @@
       </div>
       <div id="rm-content" hidden>
         <div class="rm-head">
-          <div>
+          <div class="rm-title">
             <h1 id="rm-title"></h1>
+          </div>
+          <div class="rm-details">
             <p class="lead" id="rm-summary"></p>
             <ul class="chips" id="rm-chips"></ul>
           </div>
-          <div class="actions">
+          <div class="actions rm-actions">
             <button class="btn btn-ghost small" id="rm-edit" type="button">Edit profile</button>
+            <button class="btn btn-ghost small" id="rm-library" type="button">My Roadmaps</button>
+            <button class="btn btn-ghost small" id="rm-rename" type="button">Rename</button>
+            <button class="btn btn-danger small" id="rm-delete" type="button">Delete</button>
             <button class="btn btn-ghost small" id="rm-regen" type="button">Regenerate</button>
             <button class="btn btn-ghost small" id="rm-print" type="button">Print</button>
           </div>
@@ -199,10 +245,14 @@
     </section>
   </main>
 
-  <footer class="footer">LearnPath AI. Roadmaps are AI-generated, so check resources before you rely on them.</footer>
+  <footer class="footer">CogniPath &#x1F3AF; &middot; Intelligence meets personalized learning. Roadmaps are AI-generated, so check resources before you rely on them.</footer>
   <div id="toast" role="status" aria-live="polite"></div>
+  <aside id="reminder-alert" class="reminder-alert" role="status" aria-live="polite" hidden>
+    <span class="reminder-alert-icon" aria-hidden="true">🔥</span>
+    <div class="reminder-alert-copy"><strong>Your learning journey is waiting!</strong><p>Complete today's goal and get one step closer to your dream!</p></div>
+    <button class="reminder-dismiss" type="button" aria-label="Dismiss reminder">&times;</button>
+  </aside>
   <script src="runtime-config.js"></script>
-  <script src="script.js?v=4"></script>
+  <script src="script.js?v=12"></script>
 </body>
 </html>
-st
